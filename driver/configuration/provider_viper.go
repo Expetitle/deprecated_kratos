@@ -41,6 +41,8 @@ const UnknownVersion = "unknown version"
 const (
 	ViperKeyDSN = "dsn"
 
+	ViperKeyRabbitMQURL = "rabbitmq.url"
+
 	ViperKeyCourierSMTPURL       = "courier.smtp.connection_uri"
 	ViperKeyCourierTemplatesPath = "courier.template_override_path"
 	ViperKeyCourierSMTPFrom      = "courier.smtp.from_address"
@@ -209,6 +211,17 @@ func (p *ViperProvider) DSN() string {
 	}
 
 	p.l.Fatal("dsn must be set")
+	return ""
+}
+
+func (p *ViperProvider) RabbitMQURL() string {
+	rabbitMQURL := viperx.GetString(p.l, ViperKeyRabbitMQURL, "")
+
+	if len(rabbitMQURL) > 0 {
+		return rabbitMQURL
+	}
+
+	p.l.Fatal("rabbitmq url must be set")
 	return ""
 }
 

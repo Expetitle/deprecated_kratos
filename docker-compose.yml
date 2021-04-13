@@ -1,0 +1,42 @@
+version: '3.1'
+
+services:
+  kratos:
+    build:
+      dockerfile: Dockerfile
+      context: ./
+    container_name: test-kratos
+    restart: unless-stopped
+    ports:
+      - 4433:4433 # public
+      - 4434:4434 # admin
+    external_links:
+      - exp-pg12:exp-pg12
+    environment:
+      - DSN=postgres://expetitle_dev:expetitle_dev@exp-pg12:5432/exp_users_dev?sslmode=disable&max_conns=20&max_idle_conns=4
+      - RABBITMQ_URL=amqp://exp-rabbitmq
+      - LOG_LEVEL=trace
+    command:
+      serve -c /etc/config/kratos/kratos.yml --dev
+    volumes:
+      - type: bind
+        source: ./contrib/quickstart/kratos/email-password
+        target: /etc/config/kratos
+      - ./.schema:/.schema
+    logging:
+      driver: json-file
+    networks:
+      - expetitle_db
+
+  mailslurper:
+    image: oryd/mailslurper:latest-smtps
+    ports:
+      - "4436:4436"
+      - "4437:4437"
+    networks:
+      - expetitle_db
+
+networks:
+  expetitle_db:
+    external:
+      name: expetitle_default

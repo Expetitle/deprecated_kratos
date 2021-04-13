@@ -688,6 +688,22 @@
         "sqlite:///var/lib/sqlite/db.sqlite?_fk=true&mode=rwc"
       ]
     },
+    "rabbitmq": {
+      "type": "object",
+      "title": "RabbitMQ configuration",
+      "description": "Configuration for rabbit mq service",
+      "properties": {
+        "url": {
+          "type": "string",
+          "title": "RabbitMQ url",
+          "description": "RabbitMQ url",
+          "examples": [
+            "amqp://container-rabbitmq"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "courier": {
       "type": "object",
       "title": "Courier configuration",
