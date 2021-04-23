@@ -2,7 +2,6 @@ package queue
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/ory/x/logrusx"
 	"github.com/streadway/amqp"
 	"github.com/tidwall/gjson"
@@ -12,11 +11,21 @@ import (
 
 type (
 	EmailUserData struct {
+		Id            string `json:"id"`
 		Email         string `json:"email"`
 		FirstName     string `json:"firstName"`
 		LastName      string `json:"lastName"`
 		Name          string `json:"name"`
 		ConfirmSignup string `json:"confirmSignup"`
+	}
+
+	PasswordRecoveryEmailData struct {
+		Id          string `json:"id"`
+		Email       string `json:"email"`
+		FirstName   string `json:"firstName"`
+		LastName    string `json:"lastName"`
+		Name        string `json:"name"`
+		RecoveryURL string `json:"recoveryUrl"`
 	}
 
 	EmailUser struct {
@@ -42,18 +51,19 @@ func SendVerificationQueue(identity *identity.Identity, address *identity.Verifi
 			l.Warn("Failed to open a channel")
 			defer ch.Close()
 		} else {
-			fmt.Println("connected to RabbitMQ")
+			l.Info("connected to RabbitMQ")
 			q, err := ch.QueueDeclare("MAIL_NEW_ACCOUNT", false, false, false, false, nil)
-			fmt.Println(q)
+			l.Info(q)
 			// Handle any errors if we were unable to create the queue
 			if err != nil {
 				l.Warn("Failed to create a queue with name MAIL_NEW_ACCOUNT")
 			} else {
-				emailUserData := EmailUserData{Email: address.Value, FirstName: firstName, LastName: lastName, Name: firstName + " " + lastName, ConfirmSignup: verifyURL}
+				emailUserData := EmailUserData{Id: identity.ID.String(), Email: address.Value, FirstName: firstName,
+					LastName: lastName, Name: firstName + " " + lastName, ConfirmSignup: verifyURL}
 				emailUser := EmailUser{User: emailUserData}
 				data := NewAccountEmailData{EventType: "NewAccount", Data: emailUser}
 				stringifyData, _ := json.Marshal(data)
-				fmt.Println(string(stringifyData))
+				l.Info(string(stringifyData))
 				err = ch.Publish(
 					"",
 					"MAIL_NEW_ACCOUNT",
@@ -66,9 +76,9 @@ func SendVerificationQueue(identity *identity.Identity, address *identity.Verifi
 				)
 
 				if err != nil {
-					fmt.Println(err)
+					l.Warn(err)
 				}
-				fmt.Println("Successfully Published Message to Queue")
+				l.Info("Successfully Published Message to Queue")
 			}
 		}
 	}
@@ -87,18 +97,17 @@ func SendRecoveryQueue(identity *identity.Identity, address *identity.RecoveryAd
 			l.Warn("Failed to open a channel")
 			defer ch.Close()
 		} else {
-			fmt.Println("connected to RabbitMQ")
+			l.Info("connected to RabbitMQ")
 			q, err := ch.QueueDeclare("RESET_PASSWORD_REQUEST", false, false, false, false, nil)
-			fmt.Println(q)
+			l.Info(q)
 			// Handle any errors if we were unable to create the queue
 			if err != nil {
 				l.Warn("Failed to create a queue with name RESET_PASSWORD_REQUEST")
 			} else {
-				emailUserData := EmailUserData{Email: address.Value, FirstName: firstName, LastName: lastName, Name: firstName + " " + lastName, ConfirmSignup: recoveryURL}
-				emailUser := EmailUser{User: emailUserData}
-				data := NewAccountEmailData{EventType: "resetPasswordRequest", Data: emailUser}
-				stringifyData, _ := json.Marshal(data)
-				fmt.Println(string(stringifyData))
+				passwordRecoveryEmailData := PasswordRecoveryEmailData{Id: identity.ID.String(), Email: address.Value, FirstName: firstName,
+					LastName: lastName, Name: firstName + " " + lastName, RecoveryURL: recoveryURL}
+				stringifyData, _ := json.Marshal(passwordRecoveryEmailData)
+				l.Info(string(stringifyData))
 				err = ch.Publish(
 					"",
 					"RESET_PASSWORD_REQUEST",
@@ -111,9 +120,9 @@ func SendRecoveryQueue(identity *identity.Identity, address *identity.RecoveryAd
 				)
 
 				if err != nil {
-					fmt.Println(err)
+					l.Warn(err)
 				}
-				fmt.Println("Successfully Published Message to Queue")
+				l.Info("Successfully Published Message to Queue")
 			}
 		}
 	}
