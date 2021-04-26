@@ -9,11 +9,15 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -o kratos .
 FROM alpine:3.13.5
 WORKDIR /root/app
 ENV GOPATH /root/app
-COPY --from=builder /root/app/kratos .
-COPY --from=builder /root/app/persistence /persistence
-COPY --from=builder /root/app/selfservice /selfservice
+COPY --from=builder /root/app .
+# TODO: find a way to set the app to read those files from /root/app and not from / folder
+RUN ln -s /root/app/persistence /persistence
+RUN ln -s /root/app/selfservice /selfservice
+RUN ln -s /root/app/schema /schema
+RUN ln -s /root/app/session /session
+RUN ln -s /root/app/identity /identity
 
-ENTRYPOINT ["/root/app/kratos"]
+ENTRYPOINT ["./kratos"]
 
 CMD ["serve", "--config", "/etc/config/kratos/.kratos.yaml", "--dev"]
 
