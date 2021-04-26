@@ -1,14 +1,17 @@
 # builder image
 FROM golang:1.16-alpine as builder
-WORKDIR /build
-COPY . /build/
+WORKDIR /root/app
+COPY . /root/app
 RUN CGO_ENABLED=0 GOOS=linux go build -a -o kratos .
 
 
 # generate clean, final image for end users
 FROM alpine:3.13.5
 WORKDIR /root/app
-COPY --from=builder /build/kratos .
+ENV GOPATH /root/app
+COPY --from=builder /root/app/kratos .
+COPY --from=builder /root/app/persistence /persistence
+COPY --from=builder /root/app/selfservice /selfservice
 
 ENTRYPOINT ["/root/app/kratos"]
 
