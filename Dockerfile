@@ -2,13 +2,13 @@
 FROM golang:1.16-alpine as builder
 WORKDIR /build
 COPY . /build/
-RUN CGO_ENABLED=0 GOOS=linux go build -a -o app .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -o kratos .
 
 
 # generate clean, final image for end users
-FROM alpine:3.11.3
+FROM alpine:3.13.5
 WORKDIR /root/app
-COPY --from=builder /build/app .
+COPY --from=builder /build/kratos .
 
 ENTRYPOINT ["/root/app/kratos"]
 
