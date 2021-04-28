@@ -53,12 +53,12 @@ func SendMessageToQueue(rabbitMQURL string, routing string, message string, l *l
 		} else {
 			l.Info("connected to RabbitMQ")
 			// TODO: the exchange name should be in ENV variables/config
-			exc, err := ch.ExchangeDeclare("users_exchange", "fanout" true, false, false, false, nil)
-			l.Info(exc)
+			err := ch.ExchangeDeclare("users_exchange", "fanout", true, false, false, false, nil)
 			// Handle any errors if we were unable to create the queue
 			if err != nil {
 				l.Warn("Failed to declare an exchange with name users_exchange")
 			} else {
+				l.Debug("Exchange declared")
 				err = ch.Publish(
 					"users_exchange",
 					routing,
@@ -95,7 +95,6 @@ func SendVerificationQueue(identity *identity.Identity, address *identity.Verifi
 func SendRecoveryQueue(identity *identity.Identity, address *identity.RecoveryAddress, rabbitMQURL string, recoveryURL string, l *logrusx.Logger) {
 	var firstName = gjson.GetBytes(identity.Traits, "name.first").String()
 	var lastName = gjson.GetBytes(identity.Traits, "name.last").String()
-	RESET_PASSWORD_REQUEST
 	passwordRecoveryEmailData := PasswordRecoveryEmailData{Id: identity.ID.String(), Email: address.Value, FirstName: firstName,
 		LastName: lastName, Name: firstName + " " + lastName, RecoveryURL: recoveryURL}
 	stringifyData, _ := json.Marshal(passwordRecoveryEmailData)
