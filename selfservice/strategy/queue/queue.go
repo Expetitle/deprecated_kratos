@@ -53,7 +53,7 @@ func SendMessageToQueue(rabbitMQURL string, routing string, message string, l *l
 		} else {
 			l.Info("connected to RabbitMQ")
 			// TODO: the exchange name should be in ENV variables/config
-			err := ch.ExchangeDeclare("users_exchange", "fanout", true, false, false, false, nil)
+			err := ch.ExchangeDeclare("users_exchange", "direct", true, false, false, false, nil)
 			// Handle any errors if we were unable to create the queue
 			if err != nil {
 				l.Warn("Failed to declare an exchange with name users_exchange")
