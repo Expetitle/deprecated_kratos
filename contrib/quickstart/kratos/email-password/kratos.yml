@@ -2,6 +2,9 @@ version: v0.4.6-alpha.1
 
 dsn: memory
 
+rabbitmq:
+  url: amqp://exp-rabbitmq
+
 serve:
   public:
     base_url: http://127.0.0.1:4433/

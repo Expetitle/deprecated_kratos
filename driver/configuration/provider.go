@@ -59,6 +59,8 @@ type Provider interface {
 
 	DSN() string
 
+	RabbitMQURL() string
+
 	AdminListenOn() string
 	PublicListenOn() string
 

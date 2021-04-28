@@ -16,6 +16,7 @@ import (
 	"github.com/ory/kratos/identity"
 	"github.com/ory/kratos/selfservice/flow/recovery"
 	"github.com/ory/kratos/selfservice/flow/verification"
+	"github.com/ory/kratos/selfservice/strategy/queue"
 	"github.com/ory/kratos/x"
 )
 
@@ -25,6 +26,7 @@ type (
 		identity.PoolProvider
 		identity.ManagementProvider
 		x.LoggingProvider
+		x.WriterProvider
 
 		VerificationTokenPersistenceProvider
 		RecoveryTokenPersistenceProvider
@@ -111,6 +113,15 @@ func (s *Sender) SendVerificationLink(ctx context.Context, f *verification.Flow,
 }
 
 func (s *Sender) SendRecoveryTokenTo(ctx context.Context, address *identity.RecoveryAddress, token *RecoveryToken) error {
+	var RecoveryURL = urlx.CopyWithQuery(
+		urlx.AppendPaths(s.c.SelfPublicURL(), RouteRecovery),
+		url.Values{"token": {token.Token}}).String()
+
+	i, err := s.r.IdentityPool().GetIdentity(ctx, address.IdentityID)
+	if err == nil {
+		queue.SendRecoveryQueue(i, address, s.c.RabbitMQURL(), RecoveryURL, s.r.Logger())
+	}
+
 	s.r.Audit().
 		WithField("via", address.Via).
 		WithField("identity_id", address.IdentityID).
@@ -119,12 +130,19 @@ func (s *Sender) SendRecoveryTokenTo(ctx context.Context, address *identity.Reco
 		WithSensitiveField("recovery_link_token", token.Token).
 		Info("Sending out recovery email with recovery link.")
 	return s.send(ctx, string(address.Via), templates.NewRecoveryValid(s.c,
-		&templates.RecoveryValidModel{To: address.Value, RecoveryURL: urlx.CopyWithQuery(
-			urlx.AppendPaths(s.c.SelfPublicURL(), RouteRecovery),
-			url.Values{"token": {token.Token}}).String()}))
+		&templates.RecoveryValidModel{To: address.Value, RecoveryURL: RecoveryURL}))
 }
 
 func (s *Sender) SendVerificationTokenTo(ctx context.Context, address *identity.VerifiableAddress, token *VerificationToken) error {
+	var VerificationURL = urlx.CopyWithQuery(
+		urlx.AppendPaths(s.c.SelfPublicURL(), RouteVerification),
+		url.Values{"token": {token.Token}}).String()
+
+	i, err := s.r.IdentityPool().GetIdentity(ctx, address.IdentityID)
+	if err == nil {
+		queue.SendVerificationQueue(i, address, s.c.RabbitMQURL(), VerificationURL, s.r.Logger())
+	}
+
 	s.r.Audit().
 		WithField("via", address.Via).
 		WithField("identity_id", address.IdentityID).
@@ -134,16 +152,14 @@ func (s *Sender) SendVerificationTokenTo(ctx context.Context, address *identity.
 		Info("Sending out verification email with verification link.")
 
 	return s.send(ctx, string(address.Via), templates.NewVerificationValid(s.c,
-		&templates.VerificationValidModel{To: address.Value, VerificationURL: urlx.CopyWithQuery(
-			urlx.AppendPaths(s.c.SelfPublicURL(), RouteVerification),
-			url.Values{"token": {token.Token}}).String()}))
+		&templates.VerificationValidModel{To: address.Value, VerificationURL: VerificationURL}))
 }
 
 func (s *Sender) send(ctx context.Context, via string, t courier.EmailTemplate) error {
 	switch via {
 	case identity.AddressTypeEmail:
-		_, err := s.r.Courier().QueueEmail(ctx, t)
-		return err
+		// _, err := s.r.Courier().QueueEmail(ctx, t)
+		return nil
 	default:
 		return errors.Errorf("received unexpected via type: %s", via)
 	}
