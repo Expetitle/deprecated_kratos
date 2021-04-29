@@ -2,6 +2,7 @@ package queue
 
 import (
 	"encoding/json"
+	"github.com/sirupsen/logrus"
 	"github.com/ory/x/logrusx"
 	"github.com/streadway/amqp"
 	"github.com/tidwall/gjson"
@@ -43,12 +44,14 @@ func SendMessageToQueue(rabbitMQURL string, routing string, message string, l *l
 	// TODO: the rabbitMQURL should not be passed as parameter, but taked from ENV directly from here
 	conn, err := amqp.Dial(rabbitMQURL)
 	if err != nil {
-		l.Warn("Failed to connect to RabbitMQ")
+		l.WithError(err).WithFields(logrus.Fields{
+			"rabbitMQURL": rabbitMQURL,
+		})).Fatal("Failed to connect to RabbitMQ")
 		defer conn.Close()
 	} else {
 		ch, err := conn.Channel()
 		if err != nil {
-			l.Warn("Failed to open a channel")
+			l.WithError(err).Fatal("Failed to open a channel")
 			defer ch.Close()
 		} else {
 			l.Info("connected to RabbitMQ")
@@ -56,9 +59,14 @@ func SendMessageToQueue(rabbitMQURL string, routing string, message string, l *l
 			err := ch.ExchangeDeclare("users_exchange", "direct", true, false, false, false, nil)
 			// Handle any errors if we were unable to create the queue
 			if err != nil {
-				l.Warn("Failed to declare an exchange with name users_exchange")
+				l.WithError(err).WithFields(logrus.Fields{
+					"exchange": "users_exchange",
+				}).Fatal("Failed to declare the exchange")
+				defer ch.Close()
 			} else {
-				l.Debug("Exchange declared")
+				l.WithFields(logrus.Fields{
+					"exchange": "users_exchange",
+				}).Info("Exchange declared")
 				err = ch.Publish(
 					"users_exchange",
 					routing,
@@ -71,7 +79,8 @@ func SendMessageToQueue(rabbitMQURL string, routing string, message string, l *l
 				)
 
 				if err != nil {
-					l.Warn(err)
+					l.WithError(err).Fatal("Failed to publish the message")
+					defer ch.Close()
 				}
 				l.Info("Successfully Published Message to exchange")
 			}
