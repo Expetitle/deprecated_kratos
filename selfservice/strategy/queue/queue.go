@@ -46,7 +46,7 @@ func SendMessageToQueue(rabbitMQURL string, routing string, message string, l *l
 	if err != nil {
 		l.WithError(err).WithFields(logrus.Fields{
 			"rabbitMQURL": rabbitMQURL,
-		})).Fatal("Failed to connect to RabbitMQ")
+		}).Fatal("Failed to connect to RabbitMQ")
 		defer conn.Close()
 	} else {
 		ch, err := conn.Channel()
