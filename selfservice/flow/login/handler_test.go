@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ory/kratos/corpx"
+
 	"github.com/gobuffalo/httptest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,9 +18,7 @@ import (
 
 	"github.com/ory/x/assertx"
 
-	"github.com/ory/viper"
-
-	"github.com/ory/kratos/driver/configuration"
+	"github.com/ory/kratos/driver/config"
 	"github.com/ory/kratos/identity"
 	"github.com/ory/kratos/internal"
 	"github.com/ory/kratos/internal/testhelpers"
@@ -28,7 +28,7 @@ import (
 )
 
 func init() {
-	internal.RegisterFakes()
+	corpx.RegisterFakes()
 }
 
 func TestInitFlow(t *testing.T) {
@@ -37,8 +37,8 @@ func TestInitFlow(t *testing.T) {
 	ts, _ := testhelpers.NewKratosServerWithRouters(t, reg, router, x.NewRouterAdmin())
 	loginTS := testhelpers.NewLoginUIFlowEchoServer(t, reg)
 
-	viper.Set(configuration.ViperKeySelfServiceBrowserDefaultReturnTo, "https://www.ory.sh")
-	viper.Set(configuration.ViperKeyDefaultIdentitySchemaURL, "file://./stub/login.schema.json")
+	conf.MustSet(config.ViperKeySelfServiceBrowserDefaultReturnTo, "https://www.ory.sh")
+	conf.MustSet(config.ViperKeyDefaultIdentitySchemaURL, "file://./stub/login.schema.json")
 
 	assertion := func(body []byte, isForced, isApi bool) {
 		r := gjson.GetBytes(body, "forced")
@@ -143,10 +143,10 @@ func TestInitFlow(t *testing.T) {
 }
 
 func TestGetFlow(t *testing.T) {
-	_, reg := internal.NewFastRegistryWithMocks(t)
+	conf, reg := internal.NewFastRegistryWithMocks(t)
 	public, admin := testhelpers.NewKratosServerWithCSRF(t, reg)
 	_ = testhelpers.NewErrorTestServer(t, reg)
-	_ = testhelpers.NewRedirTS(t, "")
+	_ = testhelpers.NewRedirTS(t, "", conf)
 
 	newLoginTS := func(t *testing.T, upstream string, c *http.Client) *httptest.Server {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -159,12 +159,11 @@ func TestGetFlow(t *testing.T) {
 	}
 
 	assertFlowPayload := func(t *testing.T, body []byte) {
-		assert.Equal(t, "password", gjson.GetBytes(body, "methods.password.method").String(), "%s", body)
-		assert.NotEmpty(t, gjson.GetBytes(body, "methods.password.config.fields.#(name==csrf_token).value").String(), "%s", body)
+		assert.NotEmpty(t, gjson.GetBytes(body, "ui.nodes.#(attributes.name==csrf_token).attributes.value").String(), "%s", body)
 		assert.NotEmpty(t, gjson.GetBytes(body, "id").String(), "%s", body)
 		assert.Empty(t, gjson.GetBytes(body, "headers").Value(), "%s", body)
-		assert.Contains(t, gjson.GetBytes(body, "methods.password.config.action").String(), gjson.GetBytes(body, "id").String(), "%s", body)
-		assert.Contains(t, gjson.GetBytes(body, "methods.password.config.action").String(), public.URL, "%s", body)
+		assert.Contains(t, gjson.GetBytes(body, "ui.action").String(), gjson.GetBytes(body, "id").String(), "%s", body)
+		assert.Contains(t, gjson.GetBytes(body, "ui.action").String(), public.URL, "%s", body)
 	}
 
 	assertExpiredPayload := func(t *testing.T, res *http.Response, body []byte) {
@@ -186,8 +185,8 @@ func TestGetFlow(t *testing.T) {
 	run := func(t *testing.T, endpoint *httptest.Server) {
 		loginTS := newLoginTS(t, endpoint.URL, nil)
 		defer loginTS.Close()
-		viper.Set(configuration.ViperKeySelfServiceLoginUI, loginTS.URL)
-		viper.Set(configuration.ViperKeySelfServiceStrategyConfig+"."+string(identity.CredentialsTypePassword), map[string]interface{}{
+		conf.MustSet(config.ViperKeySelfServiceLoginUI, loginTS.URL)
+		conf.MustSet(config.ViperKeySelfServiceStrategyConfig+"."+string(identity.CredentialsTypePassword), map[string]interface{}{
 			"enabled": true})
 
 		t.Run("case=valid", func(t *testing.T) {

@@ -1,13 +1,13 @@
 package driver
 
 import (
-	"github.com/ory/kratos/driver/configuration"
+	"github.com/ory/kratos/driver/config"
 	"github.com/ory/kratos/selfservice/hook"
 )
 
 func (m *RegistryDefault) HookVerifier() *hook.Verifier {
 	if m.hookVerifier == nil {
-		m.hookVerifier = hook.NewVerifier(m, m.c)
+		m.hookVerifier = hook.NewVerifier(m)
 	}
 	return m.hookVerifier
 }
@@ -26,17 +26,19 @@ func (m *RegistryDefault) HookSessionDestroyer() *hook.SessionDestroyer {
 	return m.hookSessionDestroyer
 }
 
-func (m *RegistryDefault) WithHooks(hooks map[string]func(configuration.SelfServiceHook) interface{}) {
+func (m *RegistryDefault) WithHooks(hooks map[string]func(config.SelfServiceHook) interface{}) {
 	m.injectedSelfserviceHooks = hooks
 }
 
-func (m *RegistryDefault) getHooks(credentialsType string, configs []configuration.SelfServiceHook) (i []interface{}) {
+func (m *RegistryDefault) getHooks(credentialsType string, configs []config.SelfServiceHook) (i []interface{}) {
 	for _, h := range configs {
 		switch h.Name {
 		case hook.KeySessionIssuer:
 			i = append(i, m.HookSessionIssuer())
 		case hook.KeySessionDestroyer:
 			i = append(i, m.HookSessionDestroyer())
+		case hook.KeyWebHook:
+			i = append(i, hook.NewWebHook(m, h.Config))
 		default:
 			var found bool
 			for name, m := range m.injectedSelfserviceHooks {

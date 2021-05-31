@@ -1,7 +1,10 @@
 package session
 
 import (
+	"context"
 	"time"
+
+	"github.com/ory/kratos/corp"
 
 	"github.com/gofrs/uuid"
 
@@ -36,12 +39,12 @@ type Session struct {
 	CreatedAt time.Time `json:"-" faker:"-" db:"created_at"`
 	// UpdatedAt is a helper struct field for gobuffalo.pop.
 	UpdatedAt time.Time `json:"-" faker:"-" db:"updated_at"`
-
-	Token string `json:"-" db:"token"`
+	Token     string    `json:"-" db:"token"`
+	NID       uuid.UUID `json:"-"  faker:"-" db:"nid"`
 }
 
-func (s Session) TableName() string {
-	return "sessions"
+func (s Session) TableName(ctx context.Context) string {
+	return corp.ContextualizeTableName(ctx, "sessions")
 }
 
 func NewActiveSession(i *identity.Identity, c interface {

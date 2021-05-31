@@ -13,6 +13,8 @@ const (
 	ErrorValidationPasswordPolicyViolation
 	ErrorValidationInvalidCredentials
 	ErrorValidationDuplicateCredentials
+	ErrorValidationTOTPVerifierWrong
+	ErrorValidationIdentifierMissing
 )
 
 func NewValidationErrorGeneric(reason string) *Message {
@@ -85,5 +87,22 @@ func NewErrorValidationDuplicateCredentials() *Message {
 		Text:    "An account with the same identifier (email, phone, username, ...) exists already.",
 		Type:    Error,
 		Context: context(nil),
+	}
+}
+
+func NewErrorValidationTOTPVerifierWrong() *Message {
+	return &Message{
+		ID:      ErrorValidationTOTPVerifierWrong,
+		Text:    "The provided authentication code is invalid.",
+		Type:    Error,
+		Context: context(nil),
+	}
+}
+
+func NewErrorValidationIdentifierMissing() *Message {
+	return &Message{
+		ID:   ErrorValidationIdentifierMissing,
+		Text: "Could not find any login identifiers. Did you forget to set them?",
+		Type: Error,
 	}
 }

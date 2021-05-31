@@ -1,13 +1,14 @@
 package login
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
 
 	"github.com/pkg/errors"
 
-	"github.com/ory/kratos/driver/configuration"
+	"github.com/ory/kratos/driver/config"
 	"github.com/ory/kratos/identity"
 	"github.com/ory/kratos/selfservice/flow"
 	"github.com/ory/kratos/session"
@@ -24,22 +25,23 @@ type (
 	}
 
 	HooksProvider interface {
-		PreLoginHooks() []PreHookExecutor
-		PostLoginHooks(credentialsType identity.CredentialsType) []PostHookExecutor
+		PreLoginHooks(ctx context.Context) []PreHookExecutor
+		PostLoginHooks(ctx context.Context, credentialsType identity.CredentialsType) []PostHookExecutor
 	}
 )
 
 type (
 	executorDependencies interface {
-		HooksProvider
+		config.Provider
 		session.ManagementProvider
 		session.PersistenceProvider
 		x.WriterProvider
 		x.LoggingProvider
+
+		HooksProvider
 	}
 	HookExecutor struct {
 		d executorDependencies
-		c configuration.Provider
 	}
 	HookExecutorProvider interface {
 		LoginHookExecutor() *HookExecutor
@@ -54,29 +56,26 @@ func PostHookExecutorNames(e []PostHookExecutor) []string {
 	return names
 }
 
-func NewHookExecutor(d executorDependencies, c configuration.Provider) *HookExecutor {
-	return &HookExecutor{
-		d: d,
-		c: c,
-	}
+func NewHookExecutor(d executorDependencies) *HookExecutor {
+	return &HookExecutor{d: d}
 }
 
 func (e *HookExecutor) PostLoginHook(w http.ResponseWriter, r *http.Request, ct identity.CredentialsType, a *Flow, i *identity.Identity) error {
-	s := session.NewActiveSession(i, e.c, time.Now().UTC()).Declassify()
+	s := session.NewActiveSession(i, e.d.Config(r.Context()), time.Now().UTC()).Declassify()
 
 	e.d.Logger().
 		WithRequest(r).
 		WithField("identity_id", i.ID).
 		WithField("flow_method", ct).
 		Debug("Running ExecuteLoginPostHook.")
-	for k, executor := range e.d.PostLoginHooks(ct) {
+	for k, executor := range e.d.PostLoginHooks(r.Context(), ct) {
 		if err := executor.ExecuteLoginPostHook(w, r, a, s); err != nil {
 			if errors.Is(err, ErrHookAbortFlow) {
 				e.d.Logger().
 					WithRequest(r).
 					WithField("executor", fmt.Sprintf("%T", executor)).
 					WithField("executor_position", k).
-					WithField("executors", PostHookExecutorNames(e.d.PostLoginHooks(ct))).
+					WithField("executors", PostHookExecutorNames(e.d.PostLoginHooks(r.Context(), ct))).
 					WithField("identity_id", i.ID).
 					WithField("flow_method", ct).
 					Debug("A ExecuteLoginPostHook hook aborted early.")
@@ -89,7 +88,7 @@ func (e *HookExecutor) PostLoginHook(w http.ResponseWriter, r *http.Request, ct 
 			WithRequest(r).
 			WithField("executor", fmt.Sprintf("%T", executor)).
 			WithField("executor_position", k).
-			WithField("executors", PostHookExecutorNames(e.d.PostLoginHooks(ct))).
+			WithField("executors", PostHookExecutorNames(e.d.PostLoginHooks(r.Context(), ct))).
 			WithField("identity_id", i.ID).
 			WithField("flow_method", ct).
 			Debug("ExecuteLoginPostHook completed successfully.")
@@ -103,7 +102,7 @@ func (e *HookExecutor) PostLoginHook(w http.ResponseWriter, r *http.Request, ct 
 			WithRequest(r).
 			WithField("session_id", s.ID).
 			WithField("identity_id", i.ID).
-			Info("Identity authenticated successfully and was issued an ORY Kratos Session Token.")
+			Info("Identity authenticated successfully and was issued an Ory Kratos Session Token.")
 
 		e.d.Writer().Write(w, r, &APIFlowResponse{Session: s, Token: s.Token})
 		return nil
@@ -117,13 +116,13 @@ func (e *HookExecutor) PostLoginHook(w http.ResponseWriter, r *http.Request, ct 
 		WithRequest(r).
 		WithField("identity_id", i.ID).
 		WithField("session_id", s.ID).
-		Info("Identity authenticated successfully and was issued an ORY Kratos Session Cookie.")
+		Info("Identity authenticated successfully and was issued an Ory Kratos Session Cookie.")
 	return x.SecureContentNegotiationRedirection(w, r, s.Declassify(), a.RequestURL,
-		e.d.Writer(), e.c, x.SecureRedirectOverrideDefaultReturnTo(e.c.SelfServiceFlowLoginReturnTo(ct.String())))
+		e.d.Writer(), e.d.Config(r.Context()), x.SecureRedirectOverrideDefaultReturnTo(e.d.Config(r.Context()).SelfServiceFlowLoginReturnTo(ct.String())))
 }
 
 func (e *HookExecutor) PreLoginHook(w http.ResponseWriter, r *http.Request, a *Flow) error {
-	for _, executor := range e.d.PreLoginHooks() {
+	for _, executor := range e.d.PreLoginHooks(r.Context()) {
 		if err := executor.ExecuteLoginPreHook(w, r, a); err != nil {
 			return err
 		}

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/ory/kratos/driver/config"
+
 	"github.com/julienschmidt/httprouter"
 	"github.com/pkg/errors"
 
@@ -21,24 +23,18 @@ type (
 		PrivilegedPoolProvider
 		ManagementProvider
 		x.WriterProvider
+		config.Provider
 	}
 	HandlerProvider interface {
 		IdentityHandler() *Handler
 	}
 	Handler struct {
-		c Configuration
 		r handlerDependencies
 	}
 )
 
-func NewHandler(
-	c Configuration,
-	r handlerDependencies,
-) *Handler {
-	return &Handler{
-		c: c,
-		r: r,
-	}
+func NewHandler(r handlerDependencies) *Handler {
+	return &Handler{r: r}
 }
 
 func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
@@ -99,7 +95,7 @@ type listIdentityParameters struct {
 //
 // Lists all identities. Does not support search at the moment.
 //
-// Learn how identities work in [ORY Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
+// Learn how identities work in [Ory Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
 //
 //     Produces:
 //     - application/json
@@ -108,7 +104,7 @@ type listIdentityParameters struct {
 //
 //     Responses:
 //       200: identityList
-//       500: genericError
+//       500: jsonError
 func (h *Handler) list(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	page, itemsPerPage := x.ParsePagination(r)
 	is, err := h.r.IdentityPool().ListIdentities(r.Context(), page, itemsPerPage)
@@ -123,7 +119,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request, _ httprouter.Para
 		return
 	}
 
-	x.PaginationHeader(w, urlx.AppendPaths(h.c.SelfAdminURL(), RouteBase), total, page, itemsPerPage)
+	x.PaginationHeader(w, urlx.AppendPaths(h.r.Config(r.Context()).SelfAdminURL(), RouteBase), total, page, itemsPerPage)
 	h.r.Writer().Write(w, r, is)
 }
 
@@ -141,7 +137,7 @@ type getIdentityParameters struct {
 //
 // Get an Identity
 //
-// Learn how identities work in [ORY Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
+// Learn how identities work in [Ory Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
 //
 //     Consumes:
 //     - application/json
@@ -153,8 +149,8 @@ type getIdentityParameters struct {
 //
 //     Responses:
 //       200: identityResponse
-//       400: genericError
-//       500: genericError
+//       404: jsonError
+//       500: jsonError
 func (h *Handler) get(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	i, err := h.r.IdentityPool().GetIdentity(r.Context(), x.ParseUUID(ps.ByName("id")))
 	if err != nil {
@@ -172,6 +168,7 @@ type createIdentityParameters struct {
 	Body CreateIdentity
 }
 
+// swagger:model createIdentity
 type CreateIdentity struct {
 	// SchemaID is the ID of the JSON Schema to be used for validating the identity's traits.
 	//
@@ -195,7 +192,7 @@ type CreateIdentity struct {
 // This endpoint creates an identity. It is NOT possible to set an identity's credentials (password, ...)
 // using this method! A way to achieve that will be introduced in the future.
 //
-// Learn how identities work in [ORY Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
+// Learn how identities work in [Ory Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
 //
 //     Consumes:
 //     - application/json
@@ -207,9 +204,9 @@ type CreateIdentity struct {
 //
 //     Responses:
 //       201: identityResponse
-//       400: genericError
-//		 409: genericError
-//       500: genericError
+//       400: jsonError
+//		 409: jsonError
+//       500: jsonError
 func (h *Handler) create(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	var cr CreateIdentity
 	if err := jsonx.NewStrictDecoder(r.Body).Decode(&cr); err != nil {
@@ -225,7 +222,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request, _ httprouter.Pa
 
 	h.r.Writer().WriteCreated(w, r,
 		urlx.AppendPaths(
-			h.c.SelfAdminURL(),
+			h.r.Config(r.Context()).SelfAdminURL(),
 			"identities",
 			i.ID.String(),
 		).String(),
@@ -241,10 +238,12 @@ type updateIdentityParameters struct {
 	// required: true
 	// in: path
 	ID string `json:"id"`
+
 	// in: body
 	Body UpdateIdentity
 }
 
+// swagger:model updateIdentity
 type UpdateIdentity struct {
 	// SchemaID is the ID of the JSON Schema to be used for validating the identity's traits. If set
 	// will update the Identity's SchemaID.
@@ -267,7 +266,7 @@ type UpdateIdentity struct {
 //
 // The full identity payload (except credentials) is expected. This endpoint does not support patching.
 //
-// Learn how identities work in [ORY Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
+// Learn how identities work in [Ory Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
 //
 //     Consumes:
 //     - application/json
@@ -278,10 +277,11 @@ type UpdateIdentity struct {
 //     Schemes: http, https
 //
 //     Responses:
-//       200: identityResponse
-//       400: genericError
-//       404: genericError
-//       500: genericError
+//       200: identity
+//       400: jsonError
+//       404: jsonError
+//		 409: jsonError
+//       500: jsonError
 func (h *Handler) update(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	var ur UpdateIdentity
 	if err := errors.WithStack(jsonx.NewStrictDecoder(r.Body).Decode(&ur)); err != nil {
@@ -331,7 +331,7 @@ type deleteIdentityParameters struct {
 // This endpoint returns 204 when the identity was deleted or when the identity was not found, in which case it is
 // assumed that is has been deleted already.
 //
-// Learn how identities work in [ORY Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
+// Learn how identities work in [Ory Kratos' User And Identity Model Documentation](https://www.ory.sh/docs/next/kratos/concepts/identity-user-model).
 //
 //     Produces:
 //     - application/json
@@ -340,8 +340,8 @@ type deleteIdentityParameters struct {
 //
 //     Responses:
 //       204: emptyResponse
-//		 404: genericError
-//       500: genericError
+//       404: jsonError
+//       500: jsonError
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	if err := h.r.IdentityPool().(PrivilegedPool).DeleteIdentity(r.Context(), x.ParseUUID(ps.ByName("id"))); err != nil {
 		h.r.Writer().WriteError(w, r, err)

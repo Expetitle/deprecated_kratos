@@ -12,11 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
-	"github.com/ory/x/randx"
-
-	"github.com/ory/viper"
-
-	"github.com/ory/kratos/driver/configuration"
+	"github.com/ory/kratos/driver/config"
 	"github.com/ory/kratos/identity"
 	"github.com/ory/kratos/internal"
 	"github.com/ory/kratos/selfservice/flow"
@@ -24,12 +20,13 @@ import (
 	"github.com/ory/kratos/selfservice/hook"
 	"github.com/ory/kratos/session"
 	"github.com/ory/kratos/x"
+	"github.com/ory/x/randx"
 )
 
 func TestSessionIssuer(t *testing.T) {
-	_, reg := internal.NewFastRegistryWithMocks(t)
-	viper.Set(configuration.ViperKeyPublicBaseURL, "http://localhost/")
-	viper.Set(configuration.ViperKeyDefaultIdentitySchemaURL, "file://./stub/stub.schema.json")
+	conf, reg := internal.NewFastRegistryWithMocks(t)
+	conf.MustSet(config.ViperKeyPublicBaseURL, "http://localhost/")
+	conf.MustSet(config.ViperKeyDefaultIdentitySchemaURL, "file://./stub/stub.schema.json")
 
 	var r http.Request
 	h := hook.NewSessionIssuer(reg)
@@ -39,7 +36,7 @@ func TestSessionIssuer(t *testing.T) {
 			w := httptest.NewRecorder()
 			sid := x.NewUUID()
 
-			i := identity.NewIdentity(configuration.DefaultIdentityTraitsSchemaID)
+			i := identity.NewIdentity(config.DefaultIdentityTraitsSchemaID)
 			require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentity(context.Background(), i))
 			require.NoError(t, h.ExecutePostRegistrationPostPersistHook(w, &r,
 				&registration.Flow{Type: flow.TypeBrowser}, &session.Session{ID: sid, Identity: i, Token: randx.MustString(12, randx.AlphaLowerNum)}))
@@ -49,13 +46,13 @@ func TestSessionIssuer(t *testing.T) {
 			assert.Equal(t, sid, got.ID)
 			assert.True(t, got.AuthenticatedAt.After(time.Now().Add(-time.Minute)))
 
-			assert.Contains(t, w.Header().Get("Set-Cookie"), session.DefaultSessionCookieName)
+			assert.Contains(t, w.Header().Get("Set-Cookie"), config.DefaultSessionCookieName)
 		})
 
 		t.Run("flow=api", func(t *testing.T) {
 			w := httptest.NewRecorder()
 
-			i := identity.NewIdentity(configuration.DefaultIdentityTraitsSchemaID)
+			i := identity.NewIdentity(config.DefaultIdentityTraitsSchemaID)
 			s := &session.Session{ID: x.NewUUID(), Identity: i, Token: randx.MustString(12, randx.AlphaLowerNum)}
 			f := &registration.Flow{Type: flow.TypeAPI}
 

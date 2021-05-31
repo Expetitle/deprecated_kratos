@@ -47,7 +47,7 @@ func (m *ManagerCookie) Pause(ctx context.Context, w http.ResponseWriter, r *htt
 	}
 	c := NewContainer(name, *o)
 
-	if err := x.SessionPersistValues(w, r, m.d.ContinuityCookieManager(), cookieName, map[string]interface{}{
+	if err := x.SessionPersistValues(w, r, m.d.ContinuityCookieManager(ctx), cookieName, map[string]interface{}{
 		name: c.ID.String(),
 	}); err != nil {
 		return err
@@ -63,6 +63,8 @@ func (m *ManagerCookie) Pause(ctx context.Context, w http.ResponseWriter, r *htt
 func (m *ManagerCookie) Continue(ctx context.Context, w http.ResponseWriter, r *http.Request, name string, opts ...ManagerOption) (*Container, error) {
 	container, err := m.container(ctx, r, name)
 	if err != nil {
+		// We do not care about an error here
+		_ = x.SessionUnsetKey(w, r, m.d.ContinuityCookieManager(ctx), cookieName, name)
 		return nil, err
 	}
 
@@ -85,7 +87,7 @@ func (m *ManagerCookie) Continue(ctx context.Context, w http.ResponseWriter, r *
 		return nil, err
 	}
 
-	if err := x.SessionUnsetKey(w, r, m.d.ContinuityCookieManager(), cookieName, name); err != nil {
+	if err := x.SessionUnsetKey(w, r, m.d.ContinuityCookieManager(ctx), cookieName, name); err != nil {
 		return nil, err
 	}
 
@@ -94,7 +96,7 @@ func (m *ManagerCookie) Continue(ctx context.Context, w http.ResponseWriter, r *
 
 func (m *ManagerCookie) sid(ctx context.Context, r *http.Request, name string) (uuid.UUID, error) {
 	var sid uuid.UUID
-	if s, err := x.SessionGetString(r, m.d.ContinuityCookieManager(), cookieName, name); err != nil {
+	if s, err := x.SessionGetString(r, m.d.ContinuityCookieManager(ctx), cookieName, name); err != nil {
 		return sid, errors.WithStack(ErrNotResumable.WithDebugf("%+v", err))
 	} else if sid = x.ParseUUID(s); sid == uuid.Nil {
 		return sid, errors.WithStack(ErrNotResumable.WithDebug("session id is not a valid uuid"))
@@ -122,12 +124,14 @@ func (m *ManagerCookie) container(ctx context.Context, r *http.Request, name str
 func (m ManagerCookie) Abort(ctx context.Context, w http.ResponseWriter, r *http.Request, name string) error {
 	sid, err := m.sid(ctx, r, name)
 	if errors.Is(err, &ErrNotResumable) {
+		// We do not care about an error here
+		_ = x.SessionUnsetKey(w, r, m.d.ContinuityCookieManager(ctx), cookieName, name)
 		return nil
 	} else if err != nil {
 		return err
 	}
 
-	if err := x.SessionUnsetKey(w, r, m.d.ContinuityCookieManager(), cookieName, name); err != nil {
+	if err := x.SessionUnsetKey(w, r, m.d.ContinuityCookieManager(ctx), cookieName, name); err != nil {
 		return err
 	}
 

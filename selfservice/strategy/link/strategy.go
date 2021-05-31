@@ -1,19 +1,19 @@
 package link
 
 import (
-	"github.com/ory/x/decoderx"
-
 	"github.com/ory/kratos/courier"
-	"github.com/ory/kratos/driver/configuration"
+	"github.com/ory/kratos/driver/config"
 	"github.com/ory/kratos/identity"
 	"github.com/ory/kratos/schema"
 	"github.com/ory/kratos/selfservice/errorx"
 	"github.com/ory/kratos/selfservice/flow/recovery"
 	"github.com/ory/kratos/selfservice/flow/settings"
 	"github.com/ory/kratos/selfservice/flow/verification"
-	"github.com/ory/kratos/selfservice/form"
 	"github.com/ory/kratos/session"
+	"github.com/ory/kratos/ui/container"
+	"github.com/ory/kratos/ui/node"
 	"github.com/ory/kratos/x"
+	"github.com/ory/x/decoderx"
 )
 
 var _ recovery.Strategy = new(Strategy)
@@ -27,7 +27,7 @@ var _ verification.PublicHandler = new(Strategy)
 type (
 	// FlowMethod contains the configuration for this selfservice strategy.
 	FlowMethod struct {
-		*form.HTMLForm
+		*container.Container
 	}
 
 	strategyDependencies interface {
@@ -35,6 +35,8 @@ type (
 		x.CSRFTokenGeneratorProvider
 		x.WriterProvider
 		x.LoggingProvider
+
+		config.Provider
 
 		session.HandlerProvider
 		session.ManagementProvider
@@ -53,25 +55,34 @@ type (
 		recovery.ErrorHandlerProvider
 		recovery.FlowPersistenceProvider
 		recovery.StrategyProvider
+		recovery.HookExecutorProvider
 
 		verification.ErrorHandlerProvider
 		verification.FlowPersistenceProvider
 		verification.StrategyProvider
+		verification.HookExecutorProvider
 
 		RecoveryTokenPersistenceProvider
 		VerificationTokenPersistenceProvider
 		SenderProvider
 
-		IdentityTraitsSchemas() schema.Schemas
+		schema.IdentityTraitsProvider
 	}
 
 	Strategy struct {
-		c  configuration.Provider
 		d  strategyDependencies
 		dx *decoderx.HTTP
 	}
 )
 
-func NewStrategy(d strategyDependencies, c configuration.Provider) *Strategy {
-	return &Strategy{c: c, d: d, dx: decoderx.NewHTTP()}
+func NewStrategy(d strategyDependencies) *Strategy {
+	return &Strategy{d: d, dx: decoderx.NewHTTP()}
+}
+
+func (s *Strategy) RecoveryNodeGroup() node.Group {
+	return node.RecoveryLinkGroup
+}
+
+func (s *Strategy) VerificationNodeGroup() node.Group {
+	return node.VerificationLinkGroup
 }

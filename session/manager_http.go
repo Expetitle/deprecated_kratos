@@ -3,9 +3,10 @@ package session
 import (
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/pkg/errors"
+
+	"github.com/ory/kratos/driver/config"
 
 	"github.com/ory/x/sqlcon"
 
@@ -17,34 +18,24 @@ import (
 
 type (
 	managerHTTPDependencies interface {
-		PersistenceProvider
-		x.CookieProvider
+		config.Provider
 		identity.PoolProvider
+		x.CookieProvider
 		x.CSRFProvider
-	}
-	managerHTTPConfiguration interface {
-		SessionPersistentCookie() bool
-		SessionLifespan() time.Duration
-		SecretsSession() [][]byte
-		SessionSameSiteMode() http.SameSite
-		SessionDomain() string
-		SessionPath() string
+		PersistenceProvider
 	}
 	ManagerHTTP struct {
-		c          managerHTTPConfiguration
-		cookieName string
+		cookieName func(ctx context.Context) string
 		r          managerHTTPDependencies
 	}
 )
 
-func NewManagerHTTP(
-	c managerHTTPConfiguration,
-	r managerHTTPDependencies,
-) *ManagerHTTP {
+func NewManagerHTTP(r managerHTTPDependencies) *ManagerHTTP {
 	return &ManagerHTTP{
-		c:          c,
-		r:          r,
-		cookieName: DefaultSessionCookieName,
+		r: r,
+		cookieName: func(ctx context.Context) string {
+			return r.Config(ctx).SessionName()
+		},
 	}
 }
 
@@ -61,12 +52,17 @@ func (s *ManagerHTTP) CreateAndIssueCookie(ctx context.Context, w http.ResponseW
 }
 
 func (s *ManagerHTTP) IssueCookie(ctx context.Context, w http.ResponseWriter, r *http.Request, session *Session) error {
-	cookie, _ := s.r.CookieManager().Get(r, s.cookieName)
-	if s.c.SessionDomain() != "" {
-		cookie.Options.Domain = s.c.SessionDomain()
+	cookie, _ := s.r.CookieManager(r.Context()).Get(r, s.cookieName(ctx))
+
+	if domain := s.r.Config(ctx).SessionDomain(); domain != "" {
+		cookie.Options.Domain = domain
+	} else if alias := s.r.Config(ctx).SelfPublicURL(r); s.r.Config(ctx).SelfPublicURL(nil).String() != alias.String() {
+		// If a domain alias is detected use that instead.
+		cookie.Options.Domain = alias.Hostname()
+		cookie.Options.Path = alias.Path
 	}
 
-	old, err := s.FetchFromRequest(context.Background(), r)
+	old, err := s.FetchFromRequest(ctx, r)
 	if err != nil {
 		// No session was set prior -> regenerate anti-csrf token
 		_ = s.r.CSRFHandler().RegenerateToken(w, r)
@@ -75,17 +71,17 @@ func (s *ManagerHTTP) IssueCookie(ctx context.Context, w http.ResponseWriter, r 
 		_ = s.r.CSRFHandler().RegenerateToken(w, r)
 	}
 
-	if s.c.SessionPath() != "" {
-		cookie.Options.Path = s.c.SessionPath()
+	if s.r.Config(ctx).SessionPath() != "" {
+		cookie.Options.Path = s.r.Config(ctx).SessionPath()
 	}
 
-	if s.c.SessionSameSiteMode() != 0 {
-		cookie.Options.SameSite = s.c.SessionSameSiteMode()
+	if s.r.Config(ctx).SessionSameSiteMode() != 0 {
+		cookie.Options.SameSite = s.r.Config(ctx).SessionSameSiteMode()
 	}
 
 	cookie.Options.MaxAge = 0
-	if s.c.SessionPersistentCookie() {
-		cookie.Options.MaxAge = int(s.c.SessionLifespan().Seconds())
+	if s.r.Config(ctx).SessionPersistentCookie() {
+		cookie.Options.MaxAge = int(s.r.Config(ctx).SessionLifespan().Seconds())
 	}
 
 	cookie.Values["session_token"] = session.Token
@@ -96,17 +92,14 @@ func (s *ManagerHTTP) IssueCookie(ctx context.Context, w http.ResponseWriter, r 
 }
 
 func (s *ManagerHTTP) extractToken(r *http.Request) string {
-	if token, ok := bearerTokenFromRequest(r); ok {
-		return token
-	}
-
 	if token := r.Header.Get("X-Session-Token"); len(token) > 0 {
 		return token
 	}
 
-	cookie, err := s.r.CookieManager().Get(r, s.cookieName)
+	cookie, err := s.r.CookieManager(r.Context()).Get(r, s.cookieName(r.Context()))
 	if err != nil {
-		return ""
+		token, _ := bearerTokenFromRequest(r)
+		return token
 	}
 
 	token, ok := cookie.Values["session_token"].(string)
@@ -114,7 +107,8 @@ func (s *ManagerHTTP) extractToken(r *http.Request) string {
 		return token
 	}
 
-	return ""
+	token, _ = bearerTokenFromRequest(r)
+	return token
 }
 
 func (s *ManagerHTTP) FetchFromRequest(ctx context.Context, r *http.Request) (*Session, error) {
@@ -144,7 +138,7 @@ func (s *ManagerHTTP) PurgeFromRequest(ctx context.Context, w http.ResponseWrite
 		return errors.WithStack(s.r.SessionPersister().RevokeSessionByToken(ctx, token))
 	}
 
-	cookie, _ := s.r.CookieManager().Get(r, s.cookieName)
+	cookie, _ := s.r.CookieManager(r.Context()).Get(r, s.cookieName(ctx))
 	token, ok := cookie.Values["session_token"].(string)
 	if !ok {
 		return nil
