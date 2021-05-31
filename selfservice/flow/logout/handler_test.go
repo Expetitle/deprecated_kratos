@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ory/kratos/driver/configuration"
+	"github.com/ory/kratos/driver/config"
 	"github.com/ory/kratos/identity"
 	"github.com/ory/kratos/internal"
 	"github.com/ory/kratos/internal/testhelpers"
@@ -20,20 +20,18 @@ import (
 	"github.com/ory/kratos/session"
 	"github.com/ory/kratos/x"
 	"github.com/ory/nosurf"
-	"github.com/ory/viper"
-	"github.com/ory/x/logrusx"
 )
 
 func TestLogoutHandler(t *testing.T) {
 	conf, reg := internal.NewFastRegistryWithMocks(t)
 	handler := reg.LogoutHandler()
 
-	viper.Set(configuration.ViperKeyDefaultIdentitySchemaURL, "file://./stub/registration.schema.json")
-	viper.Set(configuration.ViperKeyPublicBaseURL, "http://example.com")
+	conf.MustSet(config.ViperKeyDefaultIdentitySchemaURL, "file://./stub/registration.schema.json")
+	conf.MustSet(config.ViperKeyPublicBaseURL, "http://example.com")
 
 	router := x.NewRouterPublic()
 	handler.RegisterPublicRoutes(router)
-	reg.WithCSRFHandler(x.NewCSRFHandler(router, reg.Writer(), logrusx.New("", ""), "/", "", false))
+	reg.WithCSRFHandler(x.NewCSRFHandler(router, reg))
 	ts := httptest.NewServer(reg.CSRFHandler())
 	defer ts.Close()
 
@@ -54,8 +52,8 @@ func TestLogoutHandler(t *testing.T) {
 	}))
 	defer redirTS.Close()
 
-	viper.Set(configuration.ViperKeySelfServiceLogoutBrowserDefaultReturnTo, redirTS.URL)
-	viper.Set(configuration.ViperKeyPublicBaseURL, ts.URL)
+	conf.MustSet(config.ViperKeySelfServiceLogoutBrowserDefaultReturnTo, redirTS.URL)
+	conf.MustSet(config.ViperKeyPublicBaseURL, ts.URL)
 
 	client := testhelpers.NewClientWithCookies(t)
 
@@ -80,7 +78,7 @@ func TestLogoutHandler(t *testing.T) {
 
 		var found bool
 		for _, c := range res.Cookies() {
-			if c.Name == session.DefaultSessionCookieName {
+			if c.Name == config.DefaultSessionCookieName {
 				found = true
 			}
 		}
@@ -100,7 +98,7 @@ func TestLogoutHandler(t *testing.T) {
 
 	t.Run("case=respects return_to URI parameter", func(t *testing.T) {
 		returnToURL := ts.URL + "/after-logout"
-		viper.Set(configuration.ViperKeyURLsWhitelistedReturnToDomains, []string{returnToURL})
+		conf.MustSet(config.ViperKeyURLsWhitelistedReturnToDomains, []string{returnToURL})
 
 		query := url.Values{
 			"return_to": {returnToURL},

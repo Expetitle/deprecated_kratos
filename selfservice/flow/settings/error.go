@@ -5,12 +5,14 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/ory/kratos/ui/node"
+
 	"github.com/pkg/errors"
 
 	"github.com/ory/herodot"
 	"github.com/ory/x/urlx"
 
-	"github.com/ory/kratos/driver/configuration"
+	"github.com/ory/kratos/driver/config"
 	"github.com/ory/kratos/identity"
 	"github.com/ory/kratos/selfservice/errorx"
 	"github.com/ory/kratos/selfservice/flow"
@@ -25,6 +27,7 @@ var (
 
 type (
 	errorHandlerDependencies interface {
+		config.Provider
 		errorx.ManagementProvider
 		x.WriterProvider
 		x.LoggingProvider
@@ -37,7 +40,6 @@ type (
 
 	ErrorHandler struct {
 		d errorHandlerDependencies
-		c configuration.Provider
 	}
 
 	FlowExpiredError struct {
@@ -66,11 +68,8 @@ func NewFlowExpiredError(at time.Time) *FlowExpiredError {
 	}
 }
 
-func NewErrorHandler(d errorHandlerDependencies, c configuration.Provider) *ErrorHandler {
-	return &ErrorHandler{
-		d: d,
-		c: c,
-	}
+func NewErrorHandler(d errorHandlerDependencies) *ErrorHandler {
+	return &ErrorHandler{d: d}
 }
 
 func (s *ErrorHandler) reauthenticate(
@@ -84,18 +83,16 @@ func (s *ErrorHandler) reauthenticate(
 		return
 	}
 
-	returnTo := urlx.CopyWithQuery(urlx.AppendPaths(s.c.SelfPublicURL(), r.URL.Path), r.URL.Query())
-	http.Redirect(w, r, urlx.AppendPaths(urlx.CopyWithQuery(s.c.SelfPublicURL(),
-		url.Values{
-			"refresh":   {"true"},
-			"return_to": {returnTo.String()},
-		}), login.RouteInitBrowserFlow).String(), http.StatusFound)
+	returnTo := urlx.CopyWithQuery(urlx.AppendPaths(s.d.Config(r.Context()).SelfPublicURL(r), r.URL.Path), r.URL.Query())
+	http.Redirect(w, r, urlx.AppendPaths(urlx.CopyWithQuery(s.d.Config(r.Context()).SelfPublicURL(r),
+		url.Values{"refresh": {"true"}, "return_to": {returnTo.String()}}),
+		login.RouteInitBrowserFlow).String(), http.StatusFound)
 }
 
 func (s *ErrorHandler) WriteFlowError(
 	w http.ResponseWriter,
 	r *http.Request,
-	method string,
+	group node.Group,
 	f *Flow,
 	id *identity.Identity,
 	err error,
@@ -112,25 +109,30 @@ func (s *ErrorHandler) WriteFlowError(
 	}
 
 	if e := new(FlowExpiredError); errors.As(err, &e) {
+		if id == nil {
+			s.forward(w, r, f, err)
+			return
+		}
+
 		// create new flow because the old one is not valid
 		a, err := s.d.SettingsHandler().NewFlow(w, r, id, f.Type)
 		if err != nil {
 			// failed to create a new session and redirect to it, handle that error as a new one
-			s.WriteFlowError(w, r, method, f, id, err)
+			s.WriteFlowError(w, r, group, f, id, err)
 			return
 		}
 
-		a.Messages.Add(text.NewErrorValidationSettingsFlowExpired(e.ago))
+		a.UI.Messages.Add(text.NewErrorValidationSettingsFlowExpired(e.ago))
 		if err := s.d.SettingsFlowPersister().UpdateSettingsFlow(r.Context(), a); err != nil {
 			s.forward(w, r, a, err)
 			return
 		}
 
 		if f.Type == flow.TypeAPI {
-			http.Redirect(w, r, urlx.CopyWithQuery(urlx.AppendPaths(s.c.SelfPublicURL(),
+			http.Redirect(w, r, urlx.CopyWithQuery(urlx.AppendPaths(s.d.Config(r.Context()).SelfPublicURL(r),
 				RouteGetFlow), url.Values{"id": {a.ID.String()}}).String(), http.StatusFound)
 		} else {
-			http.Redirect(w, r, a.AppendTo(s.c.SelfServiceFlowSettingsUI()).String(), http.StatusFound)
+			http.Redirect(w, r, a.AppendTo(s.d.Config(r.Context()).SelfServiceFlowSettingsUI()).String(), http.StatusFound)
 		}
 		return
 	}
@@ -140,24 +142,23 @@ func (s *ErrorHandler) WriteFlowError(
 		return
 	}
 
-	if _, ok := f.Methods[method]; !ok {
-		s.forward(w, r, f, errors.WithStack(herodot.ErrInternalServerError.
-			WithErrorf(`Expected settings method "%s" to exist in flow. This is a bug in the code and should be reported on GitHub.`, method)))
-		return
-	}
-
-	if err := f.Methods[method].Config.ParseError(err); err != nil {
+	if err := f.UI.ParseError(group, err); err != nil {
 		s.forward(w, r, f, err)
 		return
 	}
 
-	if err := s.d.SettingsFlowPersister().UpdateSettingsFlowMethod(r.Context(), f.ID, method, f.Methods[method]); err != nil {
+	if err := sortNodes(f.UI.Nodes, id.SchemaURL); err != nil {
+		s.forward(w, r, f, err)
+		return
+	}
+
+	if err := s.d.SettingsFlowPersister().UpdateSettingsFlow(r.Context(), f); err != nil {
 		s.forward(w, r, f, err)
 		return
 	}
 
 	if f.Type == flow.TypeBrowser {
-		http.Redirect(w, r, f.AppendTo(s.c.SelfServiceFlowSettingsUI()).String(), http.StatusFound)
+		http.Redirect(w, r, f.AppendTo(s.d.Config(r.Context()).SelfServiceFlowSettingsUI()).String(), http.StatusFound)
 		return
 	}
 

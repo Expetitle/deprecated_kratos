@@ -1,7 +1,10 @@
 package continuity
 
 import (
+	"context"
 	"time"
+
+	"github.com/ory/kratos/corp"
 
 	"github.com/gofrs/uuid"
 	"github.com/pkg/errors"
@@ -13,7 +16,8 @@ import (
 )
 
 type Container struct {
-	ID         uuid.UUID  `json:"id" db:"id"`
+	ID         uuid.UUID  `json:"id" db:"id" rw:"r"`
+	NID        uuid.UUID  `json:"-" db:"nid"`
 	Name       string     `json:"name" db:"name"`
 	IdentityID *uuid.UUID `json:"identity_id" db:"identity_id"`
 
@@ -24,10 +28,10 @@ type Container struct {
 	Payload sqlxx.NullJSONRawMessage `json:"payload" db:"payload"`
 
 	// CreatedAt is a helper struct field for gobuffalo.pop.
-	CreatedAt time.Time `json:"-" db:"created_at"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
 
 	// UpdatedAt is a helper struct field for gobuffalo.pop.
-	UpdatedAt time.Time `json:"-" db:"updated_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
 }
 
 func (c *Container) UTC() *Container {
@@ -37,8 +41,8 @@ func (c *Container) UTC() *Container {
 	return c
 }
 
-func (c *Container) TableName() string {
-	return "continuity_containers"
+func (c Container) TableName(ctx context.Context) string {
+	return corp.ContextualizeTableName(ctx, "continuity_containers")
 }
 
 func NewContainer(name string, o managerOptions) *Container {

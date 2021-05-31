@@ -14,7 +14,6 @@ import (
 	"github.com/ory/x/errorsx"
 
 	"github.com/ory/kratos/courier"
-	"github.com/ory/kratos/driver/configuration"
 )
 
 var ErrProtectedFieldModified = herodot.ErrForbidden.
@@ -31,7 +30,6 @@ type (
 	}
 	Manager struct {
 		r managerDependencies
-		c configuration.Provider
 	}
 
 	managerOptions struct {
@@ -42,8 +40,8 @@ type (
 	ManagerOption func(*managerOptions)
 )
 
-func NewManager(r managerDependencies, c configuration.Provider) *Manager {
-	return &Manager{r: r, c: c}
+func NewManager(r managerDependencies) *Manager {
+	return &Manager{r: r}
 }
 
 func ManagerExposeValidationErrorsForInternalTypeAssertion(options *managerOptions) {
@@ -64,7 +62,7 @@ func newManagerOptions(opts []ManagerOption) *managerOptions {
 
 func (m *Manager) Create(ctx context.Context, i *Identity, opts ...ManagerOption) error {
 	o := newManagerOptions(opts)
-	if err := m.validate(i, o); err != nil {
+	if err := m.validate(ctx, i, o); err != nil {
 		return err
 	}
 
@@ -92,7 +90,7 @@ func (m *Manager) requiresPrivilegedAccess(_ context.Context, original, updated 
 
 func (m *Manager) Update(ctx context.Context, updated *Identity, opts ...ManagerOption) error {
 	o := newManagerOptions(opts)
-	if err := m.validate(updated, o); err != nil {
+	if err := m.validate(ctx, updated, o); err != nil {
 		return err
 	}
 
@@ -120,38 +118,47 @@ func (m *Manager) UpdateSchemaID(ctx context.Context, id uuid.UUID, schemaID str
 	}
 
 	original.SchemaID = schemaID
-	if err := m.validate(original, o); err != nil {
+	if err := m.validate(ctx, original, o); err != nil {
 		return err
 	}
 
 	return m.r.IdentityPool().(PrivilegedPool).UpdateIdentity(ctx, original)
 }
 
-func (m *Manager) UpdateTraits(ctx context.Context, id uuid.UUID, traits Traits, opts ...ManagerOption) error {
+func (m *Manager) SetTraits(ctx context.Context, id uuid.UUID, traits Traits, opts ...ManagerOption) (*Identity, error) {
 	o := newManagerOptions(opts)
 	original, err := m.r.IdentityPool().(PrivilegedPool).GetIdentityConfidential(ctx, id)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// original is used to check whether protected traits were modified
 	updated := deepcopy.Copy(original).(*Identity)
 	updated.Traits = traits
-	if err := m.validate(updated, o); err != nil {
-		return err
+	if err := m.validate(ctx, updated, o); err != nil {
+		return nil, err
 	}
 
 	if err := m.requiresPrivilegedAccess(ctx, original, updated, o); err != nil {
+		return nil, err
+	}
+
+	return updated, nil
+}
+
+func (m *Manager) UpdateTraits(ctx context.Context, id uuid.UUID, traits Traits, opts ...ManagerOption) error {
+	updated, err := m.SetTraits(ctx, id, traits, opts...)
+	if err != nil {
 		return err
 	}
 
 	return m.r.IdentityPool().(PrivilegedPool).UpdateIdentity(ctx, updated)
 }
 
-func (m *Manager) validate(i *Identity, o *managerOptions) error {
-	if err := m.r.IdentityValidator().Validate(i); err != nil {
+func (m *Manager) validate(ctx context.Context, i *Identity, o *managerOptions) error {
+	if err := m.r.IdentityValidator().Validate(ctx, i); err != nil {
 		if _, ok := errorsx.Cause(err).(*jsonschema.ValidationError); ok && !o.ExposeValidationErrors {
-			return errors.WithStack(herodot.ErrBadRequest.WithReasonf("%s", err))
+			return herodot.ErrBadRequest.WithReasonf("%s", err).WithWrap(err)
 		}
 		return err
 	}

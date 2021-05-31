@@ -2,6 +2,7 @@ package link
 
 import (
 	"context"
+	"net/http"
 	"net/url"
 
 	"github.com/pkg/errors"
@@ -12,7 +13,7 @@ import (
 
 	"github.com/ory/kratos/courier"
 	templates "github.com/ory/kratos/courier/template"
-	"github.com/ory/kratos/driver/configuration"
+	"github.com/ory/kratos/driver/config"
 	"github.com/ory/kratos/identity"
 	"github.com/ory/kratos/selfservice/flow/recovery"
 	"github.com/ory/kratos/selfservice/flow/verification"
@@ -25,8 +26,9 @@ type (
 		courier.Provider
 		identity.PoolProvider
 		identity.ManagementProvider
+		identity.PrivilegedPoolProvider
 		x.LoggingProvider
-		x.WriterProvider
+		config.Provider
 
 		VerificationTokenPersistenceProvider
 		RecoveryTokenPersistenceProvider
@@ -38,20 +40,19 @@ type (
 
 	Sender struct {
 		r senderDependencies
-		c configuration.Provider
 	}
 )
 
 var ErrUnknownAddress = errors.New("verification requested for unknown address")
 
-func NewSender(r senderDependencies, c configuration.Provider) *Sender {
-	return &Sender{r: r, c: c}
+func NewSender(r senderDependencies) *Sender {
+	return &Sender{r: r}
 }
 
 // SendRecoveryLink sends a recovery link to the specified address. If the address does not exist in the store, an email is
 // still being sent to prevent account enumeration attacks. In that case, this function returns the ErrUnknownAddress
 // error.
-func (s *Sender) SendRecoveryLink(ctx context.Context, f *recovery.Flow, via identity.VerifiableAddressType, to string) error {
+func (s *Sender) SendRecoveryLink(ctx context.Context, r *http.Request, f *recovery.Flow, via identity.VerifiableAddressType, to string) error {
 	s.r.Logger().
 		WithField("via", via).
 		WithSensitiveField("address", to).
@@ -59,7 +60,7 @@ func (s *Sender) SendRecoveryLink(ctx context.Context, f *recovery.Flow, via ide
 
 	address, err := s.r.IdentityPool().FindRecoveryAddressByValue(ctx, identity.RecoveryAddressTypeEmail, to)
 	if err != nil {
-		if err := s.send(ctx, string(via), templates.NewRecoveryInvalid(s.c, &templates.RecoveryInvalidModel{To: to})); err != nil {
+		if err := s.send(ctx, string(via), templates.NewRecoveryInvalid(s.r.Config(ctx), &templates.RecoveryInvalidModel{To: to})); err != nil {
 			return err
 		}
 		return errors.Cause(ErrUnknownAddress)
@@ -70,7 +71,7 @@ func (s *Sender) SendRecoveryLink(ctx context.Context, f *recovery.Flow, via ide
 		return err
 	}
 
-	if err := s.SendRecoveryTokenTo(ctx, address, token); err != nil {
+	if err := s.SendRecoveryTokenTo(ctx, f, address, token); err != nil {
 		return err
 	}
 
@@ -93,7 +94,7 @@ func (s *Sender) SendVerificationLink(ctx context.Context, f *verification.Flow,
 				WithField("via", via).
 				WithSensitiveField("email_address", address).
 				Info("Sending out invalid verification email because address is unknown.")
-			if err := s.send(ctx, string(via), templates.NewVerificationInvalid(s.c, &templates.VerificationInvalidModel{To: to})); err != nil {
+			if err := s.send(ctx, string(via), templates.NewVerificationInvalid(s.r.Config(ctx), &templates.VerificationInvalidModel{To: to})); err != nil {
 				return err
 			}
 			return errors.Cause(ErrUnknownAddress)
@@ -106,20 +107,23 @@ func (s *Sender) SendVerificationLink(ctx context.Context, f *verification.Flow,
 		return err
 	}
 
-	if err := s.SendVerificationTokenTo(ctx, address, token); err != nil {
+	if err := s.SendVerificationTokenTo(ctx, f, address, token); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Sender) SendRecoveryTokenTo(ctx context.Context, address *identity.RecoveryAddress, token *RecoveryToken) error {
+func (s *Sender) SendRecoveryTokenTo(ctx context.Context, f *recovery.Flow, address *identity.RecoveryAddress, token *RecoveryToken) error {
 	var RecoveryURL = urlx.CopyWithQuery(
-		urlx.AppendPaths(s.c.SelfPublicURL(), RouteRecovery),
-		url.Values{"token": {token.Token}}).String()
+		urlx.AppendPaths(s.r.Config(ctx).SelfPublicURL(nil), recovery.RouteSubmitFlow),
+		url.Values{
+			"token": {token.Token},
+			"flow":  {f.ID.String()},
+		}).String()
 
 	i, err := s.r.IdentityPool().GetIdentity(ctx, address.IdentityID)
 	if err == nil {
-		queue.SendRecoveryQueue(i, address, s.c.RabbitMQURL(), RecoveryURL, s.r.Logger())
+		queue.SendRecoveryQueue(i, address, s.r.Config(ctx).RabbitMQURL(), RecoveryURL, s.r.Logger())
 	}
 
 	s.r.Audit().
@@ -129,18 +133,21 @@ func (s *Sender) SendRecoveryTokenTo(ctx context.Context, address *identity.Reco
 		WithSensitiveField("email_address", address.Value).
 		WithSensitiveField("recovery_link_token", token.Token).
 		Info("Sending out recovery email with recovery link.")
-	return s.send(ctx, string(address.Via), templates.NewRecoveryValid(s.c,
+	return s.send(ctx, string(address.Via), templates.NewRecoveryValid(s.r.Config(ctx),
 		&templates.RecoveryValidModel{To: address.Value, RecoveryURL: RecoveryURL}))
 }
 
-func (s *Sender) SendVerificationTokenTo(ctx context.Context, address *identity.VerifiableAddress, token *VerificationToken) error {
+func (s *Sender) SendVerificationTokenTo(ctx context.Context, f *verification.Flow, address *identity.VerifiableAddress, token *VerificationToken) error {
 	var VerificationURL = urlx.CopyWithQuery(
-		urlx.AppendPaths(s.c.SelfPublicURL(), RouteVerification),
-		url.Values{"token": {token.Token}}).String()
+		urlx.AppendPaths(s.r.Config(ctx).SelfPublicURL(nil), verification.RouteSubmitFlow),
+		url.Values{
+			"flow":  {f.ID.String()},
+			"token": {token.Token},
+		}).String()
 
 	i, err := s.r.IdentityPool().GetIdentity(ctx, address.IdentityID)
 	if err == nil {
-		queue.SendVerificationQueue(i, address, s.c.RabbitMQURL(), VerificationURL, s.r.Logger())
+		queue.SendVerificationQueue(i, address, s.r.Config(ctx).RabbitMQURL(), VerificationURL, s.r.Logger())
 	}
 
 	s.r.Audit().
@@ -151,14 +158,21 @@ func (s *Sender) SendVerificationTokenTo(ctx context.Context, address *identity.
 		WithSensitiveField("verification_link_token", token.Token).
 		Info("Sending out verification email with verification link.")
 
-	return s.send(ctx, string(address.Via), templates.NewVerificationValid(s.c,
-		&templates.VerificationValidModel{To: address.Value, VerificationURL: VerificationURL}))
+	if err := s.send(ctx, string(address.Via), templates.NewVerificationValid(s.r.Config(ctx),
+		&templates.VerificationValidModel{To: address.Value, VerificationURL: VerificationURL})); err != nil {
+		return err
+	}
+	address.Status = identity.VerifiableAddressStatusSent
+	if err := s.r.PrivilegedIdentityPool().UpdateVerifiableAddress(ctx, address); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *Sender) send(ctx context.Context, via string, t courier.EmailTemplate) error {
 	switch via {
 	case identity.AddressTypeEmail:
-		// _, err := s.r.Courier().QueueEmail(ctx, t)
+		// _, err := s.r.Courier(ctx).QueueEmail(ctx, t)
 		return nil
 	default:
 		return errors.Errorf("received unexpected via type: %s", via)

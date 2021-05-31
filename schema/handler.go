@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,7 +19,7 @@ type (
 	handlerDependencies interface {
 		x.WriterProvider
 		x.LoggingProvider
-		IdentityTraitsSchemas() Schemas
+		IdentityTraitsProvider
 	}
 	Handler struct {
 		r handlerDependencies
@@ -29,9 +30,7 @@ type (
 )
 
 func NewHandler(r handlerDependencies) *Handler {
-	return &Handler{
-		r: r,
-	}
+	return &Handler{r: r}
 }
 
 const SchemasPath string = "schemas"
@@ -44,14 +43,11 @@ func (h *Handler) RegisterAdminRoutes(admin *x.RouterAdmin) {
 	admin.GET(fmt.Sprintf("/%s/:id", SchemasPath), h.get)
 }
 
-// The raw identity traits schema
+// Raw JSON Schema
 //
-// swagger:response schemaResponse
+// swagger:model jsonSchema
 // nolint:deadcode,unused
-type schemaResponse struct {
-	// in: body
-	Body interface{}
-}
+type schemaResponse json.RawMessage
 
 // nolint:deadcode,unused
 // swagger:parameters getSchema
@@ -73,11 +69,11 @@ type getSchemaParameters struct {
 //     Schemes: http, https
 //
 //     Responses:
-//       200: schemaResponse
-//       404: genericError
-//       500: genericError
+//       200: jsonSchema
+//       404: jsonError
+//       500: jsonError
 func (h *Handler) get(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-	s, err := h.r.IdentityTraitsSchemas().GetByID(ps.ByName("id"))
+	s, err := h.r.IdentityTraitsSchemas(r.Context()).GetByID(ps.ByName("id"))
 	if err != nil {
 		h.r.Writer().WriteError(w, r, errors.WithStack(herodot.ErrNotFound.WithDebugf("%+v", err)))
 		return

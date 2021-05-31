@@ -1,14 +1,15 @@
 package template
 
 import (
+	"encoding/json"
 	"path/filepath"
 
-	"github.com/ory/kratos/driver/configuration"
+	"github.com/ory/kratos/driver/config"
 )
 
 type (
 	VerificationValid struct {
-		c configuration.Provider
+		c *config.Config
 		m *VerificationValidModel
 	}
 	VerificationValidModel struct {
@@ -17,7 +18,7 @@ type (
 	}
 )
 
-func NewVerificationValid(c configuration.Provider, m *VerificationValidModel) *VerificationValid {
+func NewVerificationValid(c *config.Config, m *VerificationValidModel) *VerificationValid {
 	return &VerificationValid{c: c, m: m}
 }
 
@@ -31,4 +32,12 @@ func (t *VerificationValid) EmailSubject() (string, error) {
 
 func (t *VerificationValid) EmailBody() (string, error) {
 	return loadTextTemplate(filepath.Join(t.c.CourierTemplatesRoot(), "verification/valid/email.body.gotmpl"), t.m)
+}
+
+func (t *VerificationValid) EmailBodyPlaintext() (string, error) {
+	return loadTextTemplate(filepath.Join(t.c.CourierTemplatesRoot(), "verification/valid/email.body.plaintext.gotmpl"), t.m)
+}
+
+func (t *VerificationValid) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.m)
 }

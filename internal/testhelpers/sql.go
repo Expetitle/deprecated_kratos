@@ -1,6 +1,7 @@
 package testhelpers
 
 import (
+	"context"
 	"testing"
 
 	"github.com/gobuffalo/pop/v5"
@@ -20,37 +21,32 @@ import (
 )
 
 func CleanSQL(t *testing.T, c *pop.Connection) {
+	ctx := context.Background()
 	for _, table := range []string{
-		new(continuity.Container).TableName(),
-		new(courier.Message).TableName(),
+		new(continuity.Container).TableName(ctx),
+		new(courier.Message).TableName(ctx),
 
-		new(login.FlowMethods).TableName(),
-		new(login.Flow).TableName(),
+		new(login.Flow).TableName(ctx),
+		new(registration.Flow).TableName(ctx),
+		new(settings.Flow).TableName(ctx),
 
-		new(registration.FlowMethods).TableName(),
-		new(registration.Flow).TableName(),
+		new(link.RecoveryToken).TableName(ctx),
+		new(link.VerificationToken).TableName(ctx),
 
-		new(settings.FlowMethods).TableName(),
-		new(settings.Flow).TableName(),
+		new(recovery.Flow).TableName(ctx),
 
-		new(link.RecoveryToken).TableName(),
-		new(link.VerificationToken).TableName(),
+		new(verification.Flow).TableName(ctx),
 
-		new(recovery.FlowMethods).TableName(),
-		new(recovery.Flow).TableName(),
+		new(errorx.ErrorContainer).TableName(ctx),
 
-		new(verification.Flow).TableName(),
-		new(verification.FlowMethods).TableName(),
-
-		new(errorx.ErrorContainer).TableName(),
-
-		new(session.Session).TableName(),
-		new(identity.CredentialIdentifierCollection).TableName(),
-		new(identity.CredentialsCollection).TableName(),
-		new(identity.VerifiableAddress).TableName(),
-		new(identity.RecoveryAddress).TableName(),
-		new(identity.Identity).TableName(),
-		new(identity.CredentialsTypeTable).TableName(),
+		new(session.Session).TableName(ctx),
+		new(identity.CredentialIdentifierCollection).TableName(ctx),
+		new(identity.CredentialsCollection).TableName(ctx),
+		new(identity.VerifiableAddress).TableName(ctx),
+		new(identity.RecoveryAddress).TableName(ctx),
+		new(identity.Identity).TableName(ctx),
+		new(identity.CredentialsTypeTable).TableName(ctx),
+		"networks",
 		"schema_migration",
 	} {
 		if err := c.RawQuery("DROP TABLE IF EXISTS " + table).Exec(); err != nil {

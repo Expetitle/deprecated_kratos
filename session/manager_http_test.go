@@ -12,9 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ory/viper"
-
-	"github.com/ory/kratos/driver/configuration"
+	"github.com/ory/kratos/driver/config"
 	"github.com/ory/kratos/identity"
 	"github.com/ory/kratos/internal"
 	"github.com/ory/kratos/internal/testhelpers"
@@ -54,9 +52,8 @@ func TestManagerHTTP(t *testing.T) {
 
 	t.Run("suite=lifecycle", func(t *testing.T) {
 		conf, reg := internal.NewFastRegistryWithMocks(t)
-
-		viper.Set(configuration.ViperKeySelfServiceLoginUI, "https://www.ory.sh")
-		viper.Set(configuration.ViperKeyDefaultIdentitySchemaURL, "file://./stub/fake-session.schema.json")
+		conf.MustSet(config.ViperKeySelfServiceLoginUI, "https://www.ory.sh")
+		conf.MustSet(config.ViperKeyDefaultIdentitySchemaURL, "file://./stub/fake-session.schema.json")
 
 		var s *session.Session
 		rp := x.NewRouterPublic()
@@ -82,11 +79,11 @@ func TestManagerHTTP(t *testing.T) {
 
 		pts := httptest.NewServer(x.NewTestCSRFHandler(rp, reg))
 		t.Cleanup(pts.Close)
-		viper.Set(configuration.ViperKeyPublicBaseURL, pts.URL)
-		reg.RegisterPublicRoutes(rp)
+		conf.MustSet(config.ViperKeyPublicBaseURL, pts.URL)
+		reg.RegisterPublicRoutes(context.Background(), rp)
 
 		t.Run("case=valid", func(t *testing.T) {
-			viper.Set(configuration.ViperKeySessionLifespan, "1m")
+			conf.MustSet(config.ViperKeySessionLifespan, "1m")
 
 			i := identity.Identity{Traits: []byte("{}")}
 			require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentity(context.Background(), &i))
@@ -100,9 +97,49 @@ func TestManagerHTTP(t *testing.T) {
 			assert.EqualValues(t, http.StatusOK, res.StatusCode)
 		})
 
+		t.Run("case=valid bearer auth as fallback", func(t *testing.T) {
+			conf.MustSet(config.ViperKeySessionLifespan, "1m")
+
+			i := identity.Identity{Traits: []byte("{}")}
+			require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentity(context.Background(), &i))
+			s = session.NewActiveSession(&i, conf, time.Now())
+			require.NoError(t, reg.SessionPersister().CreateSession(context.Background(), s))
+			require.NotEmpty(t, s.Token)
+
+			req, err := http.NewRequest("GET", pts.URL+"/session/get", nil)
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer "+s.Token)
+
+			c := http.DefaultClient
+			res, err := c.Do(req)
+			require.NoError(t, err)
+			assert.EqualValues(t, http.StatusOK, res.StatusCode)
+		})
+
+		t.Run("case=valid x-session-token auth even if bearer is set", func(t *testing.T) {
+			conf.MustSet(config.ViperKeySessionLifespan, "1m")
+
+			i := identity.Identity{Traits: []byte("{}")}
+			require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentity(context.Background(), &i))
+			s = session.NewActiveSession(&i, conf, time.Now())
+			require.NoError(t, reg.SessionPersister().CreateSession(context.Background(), s))
+
+			req, err := http.NewRequest("GET", pts.URL+"/session/get", nil)
+			require.NoError(t, err)
+			req.Header.Set("Authorization", "Bearer invalid")
+			req.Header.Set("X-Session-Token", s.Token)
+
+			c := http.DefaultClient
+			res, err := c.Do(req)
+			require.NoError(t, err)
+			assert.EqualValues(t, http.StatusOK, res.StatusCode)
+		})
+
 		t.Run("case=expired", func(t *testing.T) {
-			viper.Set(configuration.ViperKeySessionLifespan, "1ns")
-			defer viper.Set(configuration.ViperKeySessionLifespan, "1m")
+			conf.MustSet(config.ViperKeySessionLifespan, "1ns")
+			t.Cleanup(func() {
+				conf.MustSet(config.ViperKeySessionLifespan, "1m")
+			})
 
 			i := identity.Identity{Traits: []byte("{}")}
 			require.NoError(t, reg.PrivilegedIdentityPool().CreateIdentity(context.Background(), &i))

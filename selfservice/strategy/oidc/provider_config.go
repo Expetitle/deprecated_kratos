@@ -23,7 +23,12 @@ type Configuration struct {
 	// - gitlab
 	// - microsoft
 	// - discord
+	// - slack
+	// - facebook
 	Provider string `json:"provider"`
+
+	// Label represents an optional label which can be used in the UI generation.
+	Label string `json:"label"`
 
 	// ClientID is the application's Client ID.
 	ClientID string `json:"client_id"`
@@ -99,6 +104,10 @@ func (c ConfigurationCollection) Provider(id string, public *url.URL) (Provider,
 				return NewProviderMicrosoft(&p, public), nil
 			case addProviderName("discord"):
 				return NewProviderDiscord(&p, public), nil
+			case addProviderName("slack"):
+				return NewProviderSlack(&p, public), nil
+			case addProviderName("facebook"):
+				return NewProviderFacebook(&p, public), nil
 			}
 			return nil, errors.Errorf("provider type %s is not supported, supported are: %v", p.Provider, providerNames)
 		}

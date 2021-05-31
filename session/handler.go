@@ -12,7 +12,7 @@ import (
 
 	"github.com/ory/herodot"
 
-	"github.com/ory/kratos/driver/configuration"
+	"github.com/ory/kratos/driver/config"
 	"github.com/ory/kratos/x"
 )
 
@@ -72,6 +72,7 @@ type revokeSessionParameters struct {
 	Body revokeSession
 }
 
+// swagger:model revokeSession
 type revokeSession struct {
 	// The Session Token
 	//
@@ -83,12 +84,12 @@ type revokeSession struct {
 
 // swagger:route DELETE /sessions public revokeSession
 //
-// Revoke and Invalidate a Session
+// Initialize Logout Flow for API Clients - Revoke a Session
 //
 // Use this endpoint to revoke a session using its token. This endpoint is particularly useful for API clients
 // such as mobile apps to log the user out of the system and invalidate the session.
 //
-// This endpoint does not remove any HTTP Cookies - use the Self-Service Logout Flow instead.
+// This endpoint does not remove any HTTP Cookies - use the Browser-Based Self-Service Logout Flow instead.
 //
 //     Consumes:
 //     - application/json
@@ -100,8 +101,8 @@ type revokeSession struct {
 //
 //     Responses:
 //       204: emptyResponse
-//       400: genericError
-//       500: genericError
+//       400: jsonError
+//       500: jsonError
 func (h *Handler) revoke(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	var p revokeSession
 	if err := h.dx.Decode(r, &p,
@@ -120,16 +121,13 @@ func (h *Handler) revoke(w http.ResponseWriter, r *http.Request, _ httprouter.Pa
 }
 
 // nolint:deadcode,unused
-// swagger:parameters whoami
-type whoamiParameters struct {
+// swagger:parameters toSession
+type sessionWhoAmIParameters struct {
 	// in: header
-	Cookie string `json:"Cookie"`
-
-	// in: authorization
-	Authorization string `json:"Authorization"`
+	SessionToken string `json:"X-Session-Token"`
 }
 
-// swagger:route GET /sessions/whoami public whoami
+// swagger:route GET /sessions/whoami public toSession
 //
 // Check Who the Current HTTP Session Belongs To
 //
@@ -137,7 +135,11 @@ type whoamiParameters struct {
 // Returns a session object in the body or 401 if the credentials are invalid or no credentials were sent.
 // Additionally when the request it successful it adds the user ID to the 'X-Kratos-Authenticated-Identity-Id' header in the response.
 //
-// This endpoint is useful for reverse proxies and API Gateways.
+// This endpoint is useful for:
+//
+// - AJAX calls. Remember to send credentials and set up CORS correctly!
+// - Reverse proxies and API Gateways
+// - Server-side calls - use the `X-Session-Token` header!
 //
 //     Produces:
 //     - application/json
@@ -145,18 +147,17 @@ type whoamiParameters struct {
 //     Schemes: http, https
 //
 //     Security:
-//       sessionToken:
+//       sessionCookie:
 //
 //     Responses:
 //       200: session
-//       401: genericError
-//       500: genericError
+//       401: jsonError
+//       500: jsonError
 func (h *Handler) whoami(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	s, err := h.r.SessionManager().FetchFromRequest(r.Context(), r)
 	if err != nil {
 		h.r.Audit().WithRequest(r).WithError(err).Info("No valid session cookie found.")
-		h.r.Writer().WriteError(w, r,
-			errors.WithStack(herodot.ErrUnauthorized.WithReasonf("No valid session cookie found.")))
+		h.r.Writer().WriteError(w, r, herodot.ErrUnauthorized.WithWrap(err).WithReasonf("No valid session cookie found."))
 		return
 	}
 
@@ -205,11 +206,11 @@ func (h *Handler) IsNotAuthenticated(wrap httprouter.Handle, onAuthenticated htt
 	}
 }
 
-func RedirectOnAuthenticated(c configuration.Provider) httprouter.Handle {
+func RedirectOnAuthenticated(d interface{ config.Provider }) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-		returnTo, err := x.SecureRedirectTo(r, c.SelfServiceBrowserDefaultReturnTo(), x.SecureRedirectAllowSelfServiceURLs(c.SelfPublicURL()))
+		returnTo, err := x.SecureRedirectTo(r, d.Config(r.Context()).SelfServiceBrowserDefaultReturnTo(), x.SecureRedirectAllowSelfServiceURLs(d.Config(r.Context()).SelfPublicURL(r)))
 		if err != nil {
-			http.Redirect(w, r, c.SelfServiceBrowserDefaultReturnTo().String(), http.StatusFound)
+			http.Redirect(w, r, d.Config(r.Context()).SelfServiceBrowserDefaultReturnTo().String(), http.StatusFound)
 			return
 		}
 

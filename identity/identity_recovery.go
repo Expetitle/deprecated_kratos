@@ -1,7 +1,10 @@
 package identity
 
 import (
+	"context"
 	"time"
+
+	"github.com/ory/kratos/corp"
 
 	"github.com/gofrs/uuid"
 )
@@ -31,9 +34,10 @@ type (
 		// IdentityID is a helper struct field for gobuffalo.pop.
 		IdentityID uuid.UUID `json:"-" faker:"-" db:"identity_id"`
 		// CreatedAt is a helper struct field for gobuffalo.pop.
-		CreatedAt time.Time `json:"-" faker:"-" db:"created_at"`
+		CreatedAt time.Time `json:"created_at" faker:"-" db:"created_at"`
 		// UpdatedAt is a helper struct field for gobuffalo.pop.
-		UpdatedAt time.Time `json:"-" faker:"-" db:"updated_at"`
+		UpdatedAt time.Time `json:"updated_at" faker:"-" db:"updated_at"`
+		NID       uuid.UUID `json:"-"  faker:"-" db:"nid"`
 	}
 )
 
@@ -45,8 +49,8 @@ func (v RecoveryAddressType) HTMLFormInputType() string {
 	return ""
 }
 
-func (a RecoveryAddress) TableName() string {
-	return "identity_recovery_addresses"
+func (a RecoveryAddress) TableName(ctx context.Context) string {
+	return corp.ContextualizeTableName(ctx, "identity_recovery_addresses")
 }
 
 func NewRecoveryEmailAddress(
